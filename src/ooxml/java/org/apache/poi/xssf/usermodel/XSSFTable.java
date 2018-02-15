@@ -32,12 +32,14 @@ import org.apache.poi.POIXMLDocumentPart;
 import org.apache.poi.openxml4j.opc.PackagePart;
 import org.apache.poi.ss.SpreadsheetVersion;
 import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.CellType;
 import org.apache.poi.ss.usermodel.DataFormatter;
 import org.apache.poi.ss.usermodel.Table;
 import org.apache.poi.ss.usermodel.TableStyleInfo;
 import org.apache.poi.ss.util.AreaReference;
 import org.apache.poi.ss.util.CellReference;
 import org.apache.poi.util.Internal;
+import org.apache.poi.util.Removal;
 import org.apache.poi.util.StringUtil;
 import org.apache.poi.xssf.usermodel.helpers.XSSFXmlColumnPr;
 import org.apache.xmlbeans.XmlException;
@@ -48,12 +50,12 @@ import org.openxmlformats.schemas.spreadsheetml.x2006.main.TableDocument;
 
 /**
  * 
- * This class implements the Table Part (Open Office XML Part 4:
- * chapter 3.5.1)
+ * This class implements the Table Part (Open Office XML Part 4: chapter 3.5.1)
  * 
- * This implementation works under the assumption that a table contains mappings to a subtree of an XML.
- * The root element of this subtree an occur multiple times (one for each row of the table). The child nodes
- * of the root element can be only attributes or element with maxOccurs=1 property set
+ * Columns of this table may contains mappings to a subtree of an XML. The root
+ * element of this subtree can occur multiple times (one for each row of the
+ * table). The child nodes of the root element can be only attributes or
+ * elements with maxOccurs=1 property set.
  * 
  *
  * @author Roberto Manicardi
@@ -231,8 +233,13 @@ public class XSSFTable extends POIXMLDocumentPart implements Table {
     /**
      * Note this list is static - once read, it does not notice later changes to the underlying column structures
      * To clear the cache, call {@link #updateHeaders}
+     * 
+     * @deprecated Use {@link XSSFTableColumn#getXmlColumnPr()} instead.
+     * 
      * @return List of XSSFXmlColumnPr
      */
+    @Deprecated
+    @Removal(version="4.2.0")
     public List<XSSFXmlColumnPr> getXmlColumnPrs() {
         if (xmlColumnPrs == null) {
             xmlColumnPrs = new ArrayList<>();
@@ -244,6 +251,81 @@ public class XSSFTable extends POIXMLDocumentPart implements Table {
             }
         }
         return xmlColumnPrs;
+    }
+    
+    /**
+     * Add a new column to the right side of the table.
+     * 
+     * @param columnName
+     *            the name of the column, must be unique and not null
+     * @return the created table column
+     * @since 4.0.0
+     */
+    public XSSFTableColumn createColumn(String columnName) {
+        return createColumn(columnName, getColumnCount());
+    }
+    
+    /**
+     * Adds a new column to the table.
+     * 
+     * @param columnName
+     *            the name of the column, must be unique and not null
+     * @param columnIndex
+     *            the 0-based position of the column in the table
+     * @return the created table column
+     * @since 4.0.0
+     */
+    public XSSFTableColumn createColumn(String columnName, int columnIndex) {
+        
+        if(columnName == null) {
+            throw new IllegalArgumentException("Column name must not be null");
+        }
+        
+        // check if name is unique and calculate unique column id 
+        long nextColumnId = 1; 
+        for (XSSFTableColumn tableColumn : getTableColumns()) {
+            if (columnName.equalsIgnoreCase(tableColumn.getName())) {
+                throw new IllegalArgumentException("Column '" + columnName
+                        + "' already exists. Column names must be unique per table.");
+            }
+            nextColumnId = Math.max(nextColumnId, tableColumn.getId());
+        }
+
+        // Ensure we have Table Columns
+        CTTableColumns columns = ctTable.getTableColumns();
+        if (columns == null) {
+            columns = ctTable.addNewTableColumns();
+        }
+        
+        // Add the new Column
+        CTTableColumn column = columns.insertNewTableColumn(columnIndex);
+        columns.setCount(columns.sizeOfTableColumnArray());
+        
+        column.setId(nextColumnId);
+        column.setName(columnName);
+        
+        // Have the Headers and references updated
+        updateReferences();
+        updateHeaders();
+        
+        return getTableColumns().get(columnIndex);
+    }
+    
+    /**
+     * Remove a column from the table.
+     *
+     * @param columnIndex
+     *            the 0-based position of the column in the table
+     */
+    public void removeColumn(int columnIndex) {
+        if(columnIndex < 0 || columnIndex > getColumnCount()) {
+            throw new IllegalArgumentException("Column index out of bounds");
+        }
+        
+        ctTable.getTableColumns().removeTableColumn(columnIndex);
+
+        updateReferences();
+        updateHeaders();
     }
     
     /**
@@ -340,8 +422,12 @@ public class XSSFTable extends POIXMLDocumentPart implements Table {
     }
 
     /**
+     * @deprecated Use {@link #getColumnCount()} instead.
+     * 
      * @return  the number of mapped table columns (see Open Office XML Part 4: chapter 3.5.1.4)
      */
+    @Deprecated
+    @Removal(version = "4.2.0")
     public long getNumberOfMappedColumns() {
         return ctTable.getTableColumns().getCount();
     }
@@ -450,12 +536,15 @@ public class XSSFTable extends POIXMLDocumentPart implements Table {
 
     
     /**
-     * @return the total number of rows in the selection. (Note: in this version autofiltering is ignored)
+     * Get the total number of rows in this table, including header rows and
+     * totals rows. (Note: in this version autofiltering is ignored)
+     * 
      * Returns <code>0</code> if the start or end cell references are not set.
      * 
-     * Does not track updates to underlying changes to CTTable
-     * To synchronize with changes to the underlying CTTable,
-     * call {@link #updateReferences()}.
+     * Does not track updates to underlying changes to CTTable To synchronize
+     * with changes to the underlying CTTable, call {@link #updateReferences()}.
+     * 
+     * @return the total number of rows
      */
     public int getRowCount() {
         CellReference from = getStartCellReference();
@@ -466,6 +555,112 @@ public class XSSFTable extends POIXMLDocumentPart implements Table {
             rowCount = to.getRow() - from.getRow() + 1;
         }
         return rowCount;
+    }
+    
+    /**
+     * Get the number of data rows in this table. This does not include any
+     * header rows or totals rows.
+     * 
+     * Returns <code>0</code> if the start or end cell references are not set.
+     * 
+     * Does not track updates to underlying changes to CTTable To synchronize
+     * with changes to the underlying CTTable, call {@link #updateReferences()}.
+     * 
+     * @return the number of data rows
+     */
+    public int getDataRowCount() {
+        CellReference from = getStartCellReference();
+        CellReference to = getEndCellReference();
+
+        int rowCount = 0;
+        if (from != null && to != null) {
+            rowCount = (to.getRow() - from.getRow() + 1) - getHeaderRowCount()
+                    - getTotalsRowCount();
+        }
+        return rowCount;
+    }
+
+    /**
+     * Resize the table by setting a new row count. This does not include any
+     * header rows or totals rows.
+     * 
+     * If the new row count is less than the current row count, superfluous rows
+     * will be cleared. If the new row count is greater than the current row
+     * count, cells below the table will be overwritten by the table.
+     *
+     * @param table
+     *            the table to modify
+     * @param newRowCount
+     *            new row count for the table
+     * 
+     * @since 4.0.0
+     */
+    public void setDataRowCount(int newRowCount) {
+
+        if (newRowCount < 1) {
+            throw new IllegalArgumentException("Tables must contain at least one row");
+        }
+
+        updateReferences();
+        int rowCount = getDataRowCount();
+        if (rowCount == newRowCount) {
+            return;
+        }
+
+        CellReference tableStart = getStartCellReference();
+        CellReference tableEnd = getEndCellReference();
+
+        // calculate new area
+        SpreadsheetVersion version = getXSSFSheet().getWorkbook().getSpreadsheetVersion();
+        CellReference newEndCell = new CellReference(
+                tableStart.getRow() + newRowCount + getTotalsRowCount(), tableEnd.getCol());
+        AreaReference newTableArea = new AreaReference(tableStart, newEndCell, version);
+
+        // clear cells
+        CellReference clearStart;
+        CellReference clearEnd;
+        if (newRowCount < rowCount) {
+            // table size reduced -
+            // clear all table cells that are outside of the new area
+            clearStart = new CellReference(newTableArea.getLastCell().getRow() + 1,
+                    newTableArea.getFirstCell().getCol());
+            clearEnd = tableEnd;
+        } else {
+            // table size increased -
+            // clear all cells below the table that are inside the new area
+            clearStart = new CellReference(tableEnd.getRow() + 1,
+                    newTableArea.getFirstCell().getCol());
+            clearEnd = newEndCell;
+        }
+        AreaReference areaToClear = new AreaReference(clearStart, clearEnd, version);
+        for (CellReference cellRef : areaToClear.getAllReferencedCells()) {
+            XSSFRow row = getXSSFSheet().getRow(cellRef.getRow());
+            if (row != null) {
+                XSSFCell cell = row.getCell(cellRef.getCol());
+                if (cell != null) {
+                    cell.setCellType(CellType.BLANK);
+                    cell.setCellStyle(null);
+                }
+            }
+        }
+
+        // update table area
+        setCellReferences(newTableArea);
+    }
+
+    /**
+     * Get the total number of columns in this table.
+     *
+     * @return the column count
+     */
+    public int getColumnCount() {
+        CTTableColumns tableColumns = ctTable.getTableColumns();
+        if(tableColumns == null) {
+            return 0;
+        }
+        // Can be safely cast to an integer here, because tables larger than the
+        // sheet (which holds the actual data of the table) can't exists.
+        return (int) tableColumns.getCount();
     }
 
     /**

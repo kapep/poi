@@ -17,12 +17,14 @@
 
 package org.apache.poi.xssf.usermodel;
 
+import org.apache.poi.util.Internal;
 import org.apache.poi.xssf.usermodel.helpers.XSSFXmlColumnPr;
 import org.openxmlformats.schemas.spreadsheetml.x2006.main.CTTableColumn;
 import org.openxmlformats.schemas.spreadsheetml.x2006.main.CTXmlColumnPr;
 
 /**
- * A column of a {@link XSSFTable}.
+ * A table column of an {@link XSSFTable}. Use {@link XSSFTable#addColumn()} to
+ * create new table columns.
  * 
  * @author Leonard Kappe
  * @since 4.0.0
@@ -42,7 +44,8 @@ public class XSSFTableColumn {
      *            the table column xmlbean to wrap
      * @since 4.0.0
      */
-    public XSSFTableColumn(XSSFTable table, CTTableColumn ctTableColumn) {
+    @Internal
+    protected XSSFTableColumn(XSSFTable table, CTTableColumn ctTableColumn) {
         this.table = table;
         this.ctTableColumn = ctTableColumn;
     }

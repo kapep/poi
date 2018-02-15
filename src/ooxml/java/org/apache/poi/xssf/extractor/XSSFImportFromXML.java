@@ -131,7 +131,7 @@ public class XSSFImportFromXML {
             int rowOffset = table.getStartCellReference().getRow() + table.getHeaderRowCount();
             int columnOffset = table.getStartCellReference().getCol();
 
-            resizeTable(table, result.getLength());
+            table.setRowCount(result.getLength());
 
             for (int i = 0; i < result.getLength(); i++) {
 
@@ -172,55 +172,7 @@ public class XSSFImportFromXML {
         }
     }
 
-    /**
-     * Resize the table by setting a new row count.
-     * 
-     * If the new row count is less than the current row count, superfluous rows will be cleared.
-     * If the new row count is greater than the current row count, cells below the table will be overwritten by the table.
-     *
-     * @param table the table to modify
-     * @param newRowCount new row count for the table
-     */
-    private void resizeTable(XSSFTable table, int newRowCount) {
-        
-        table.updateReferences();
-        int rowCount = table.getRowCount();
-        if (rowCount == newRowCount) {
-            return;
-        }
-
-        // calculate new area
-        SpreadsheetVersion spreadsheetVersion = table.getXSSFSheet().getWorkbook().getSpreadsheetVersion();
-        CellReference newEndCellReference = new CellReference(table.getStartCellReference().getRow() + newRowCount, table.getEndCellReference().getCol());
-        AreaReference newTableAreaReference = new AreaReference(table.getStartCellReference(), newEndCellReference, spreadsheetVersion);
-
-        // clear cells
-        CellReference clearAreaStartCell;
-        CellReference clearAreaEndCell;
-        if (newRowCount < rowCount) {
-            // clear all table cells that are outside of the new area
-            clearAreaStartCell = new CellReference(newTableAreaReference.getLastCell().getRow() + 1, newTableAreaReference.getFirstCell().getCol());
-            clearAreaEndCell = table.getEndCellReference();
-        } else {
-            // clear all cells below the table that are inside the new area
-            clearAreaStartCell = new CellReference(table.getEndCellReference().getRow() + 1, newTableAreaReference.getFirstCell().getCol());
-            clearAreaEndCell = newEndCellReference;
-        }
-        AreaReference areaToClear = new AreaReference(clearAreaStartCell, clearAreaEndCell, spreadsheetVersion);
-        for (CellReference cellRef : areaToClear.getAllReferencedCells()) {
-            XSSFRow row = table.getXSSFSheet().getRow(cellRef.getRow());
-            if (row != null) {
-                XSSFCell cell = row.getCell(cellRef.getCol());
-                if (cell != null) {
-                    cell.setCellType(CellType.BLANK);
-                    cell.setCellStyle(null);
-                }
-            }
-        }
-
-        // update table area
-        table.setCellReferences(newTableAreaReference);
-    }
+    
 
     private static enum DataType {
         BOOLEAN(STXmlDataType.BOOLEAN), //
