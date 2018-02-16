@@ -24,6 +24,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -65,7 +66,6 @@ public class XSSFTable extends POIXMLDocumentPart implements Table {
     private CTTable ctTable;
     private transient List<XSSFXmlColumnPr> xmlColumnPrs;
     private transient List<XSSFTableColumn> tableColumns;
-    private transient CTTableColumn[] ctColumns;
     private transient HashMap<String, Integer> columnMap;
     private transient CellReference startCellReference;
     private transient CellReference endCellReference;    
@@ -158,18 +158,6 @@ public class XSSFTable extends POIXMLDocumentPart implements Table {
         
         return false;
     }
-
-    /**
-      * caches table columns for performance.
-      * Updated via updateHeaders
-      * @since 3.15 beta 2
-      */
-    private CTTableColumn[] getCTTableColumns() {
-        if (ctColumns == null) {
-            ctColumns = ctTable.getTableColumns().getTableColumnArray();
-        }
-        return ctColumns;
-    }
     
     /**
      * 
@@ -182,9 +170,9 @@ public class XSSFTable extends POIXMLDocumentPart implements Table {
     public String getCommonXpath() {
         if (commonXPath == null) {
             String[] commonTokens = {};
-            for (CTTableColumn column : getCTTableColumns()) {
+            for (XSSFTableColumn column : getColumns()) {
                 if (column.getXmlColumnPr()!=null) {
-                    String xpath = column.getXmlColumnPr().getXpath();
+                    String xpath = column.getXmlColumnPr().getXPath();
                     String[] tokens =  xpath.split("/");
                     if (commonTokens.length==0) {
                         commonTokens = tokens;
@@ -219,15 +207,18 @@ public class XSSFTable extends POIXMLDocumentPart implements Table {
      * @return List of XSSFTableColumn
      * @since 4.0.0
      */
-    public List<XSSFTableColumn> getTableColumns() {
+    public List<XSSFTableColumn> getColumns() {
         if (tableColumns == null) {
             tableColumns = new ArrayList<>();
-            for (CTTableColumn column: getCTTableColumns()) {
-                XSSFTableColumn tableColumn = new XSSFTableColumn(this, column);
-                tableColumns.add(tableColumn);
+            CTTableColumns ctTableColumns = ctTable.getTableColumns();
+            if (ctTableColumns != null) {
+                for (CTTableColumn column : ctTableColumns.getTableColumnList()) {
+                    XSSFTableColumn tableColumn = new XSSFTableColumn(this, column);
+                    tableColumns.add(tableColumn);
+                }
             }
         }
-        return tableColumns;
+        return Collections.unmodifiableList(tableColumns);
     }
     
     /**
@@ -243,7 +234,7 @@ public class XSSFTable extends POIXMLDocumentPart implements Table {
     public List<XSSFXmlColumnPr> getXmlColumnPrs() {
         if (xmlColumnPrs == null) {
             xmlColumnPrs = new ArrayList<>();
-            for (XSSFTableColumn column: getTableColumns()) {
+            for (XSSFTableColumn column: getColumns()) {
                 XSSFXmlColumnPr xmlColumnPr = column.getXmlColumnPr();
                 if (xmlColumnPr != null) {
                     xmlColumnPrs.add(xmlColumnPr);
@@ -257,7 +248,7 @@ public class XSSFTable extends POIXMLDocumentPart implements Table {
      * Add a new column to the right side of the table.
      * 
      * @param columnName
-     *            the name of the column, must be unique and not null
+     *            the name of the column, must be unique and not {@code null}
      * @return the created table column
      * @since 4.0.0
      */
@@ -281,20 +272,24 @@ public class XSSFTable extends POIXMLDocumentPart implements Table {
             throw new IllegalArgumentException("Column name must not be null");
         }
         
+        if(columnIndex < 0 || columnIndex > getColumnCount()) {
+            throw new IllegalArgumentException("Column index out of bounds");
+        }
+        
+        // Ensure we have Table Columns
+        CTTableColumns columns = ctTable.getTableColumns();
+        if (columns == null) {
+            columns = ctTable.addNewTableColumns();
+        }
+        
         // check if name is unique and calculate unique column id 
         long nextColumnId = 1; 
-        for (XSSFTableColumn tableColumn : getTableColumns()) {
+        for (XSSFTableColumn tableColumn : getColumns()) {
             if (columnName.equalsIgnoreCase(tableColumn.getName())) {
                 throw new IllegalArgumentException("Column '" + columnName
                         + "' already exists. Column names must be unique per table.");
             }
             nextColumnId = Math.max(nextColumnId, tableColumn.getId());
-        }
-
-        // Ensure we have Table Columns
-        CTTableColumns columns = ctTable.getTableColumns();
-        if (columns == null) {
-            columns = ctTable.addNewTableColumns();
         }
         
         // Add the new Column
@@ -308,7 +303,7 @@ public class XSSFTable extends POIXMLDocumentPart implements Table {
         updateReferences();
         updateHeaders();
         
-        return getTableColumns().get(columnIndex);
+        return getColumns().get(columnIndex);
     }
     
     /**
@@ -318,7 +313,7 @@ public class XSSFTable extends POIXMLDocumentPart implements Table {
      *            the 0-based position of the column in the table
      */
     public void removeColumn(int columnIndex) {
-        if(columnIndex < 0 || columnIndex > getColumnCount()) {
+        if(columnIndex < 0 || columnIndex > getColumnCount() - 1) {
             throw new IllegalArgumentException("Column index out of bounds");
         }
         
@@ -567,6 +562,7 @@ public class XSSFTable extends POIXMLDocumentPart implements Table {
      * with changes to the underlying CTTable, call {@link #updateReferences()}.
      * 
      * @return the number of data rows
+     * @since 4.0.0
      */
     public int getDataRowCount() {
         CellReference from = getStartCellReference();
@@ -592,7 +588,6 @@ public class XSSFTable extends POIXMLDocumentPart implements Table {
      *            the table to modify
      * @param newRowCount
      *            new row count for the table
-     * 
      * @since 4.0.0
      */
     public void setDataRowCount(int newRowCount) {
@@ -652,6 +647,7 @@ public class XSSFTable extends POIXMLDocumentPart implements Table {
      * Get the total number of columns in this table.
      *
      * @return the column count
+     * @since 4.0.0
      */
     public int getColumnCount() {
         CTTableColumns tableColumns = ctTable.getTableColumns();
@@ -688,19 +684,21 @@ public class XSSFTable extends POIXMLDocumentPart implements Table {
 
         if (row != null && row.getCTRow().validate()) {
             int cellnum = firstHeaderColumn;
-            for (CTTableColumn col : getCTTable().getTableColumns().getTableColumnArray()) {
-                XSSFCell cell = row.getCell(cellnum);
-                if (cell != null) {
-                    col.setName(formatter.formatCellValue(cell));
+            CTTableColumns ctTableColumns = getCTTable().getTableColumns();
+            if(ctTableColumns != null) {
+                for (CTTableColumn col : getCTTable().getTableColumns().getTableColumnList()) {
+                    XSSFCell cell = row.getCell(cellnum);
+                    if (cell != null) {
+                        col.setName(formatter.formatCellValue(cell));
+                    }
+                    cellnum++;
                 }
-                cellnum++;
             }
-            tableColumns = null;
-            ctColumns = null;
-            columnMap = null;
-            xmlColumnPrs = null;
-            commonXPath = null;
         }
+        tableColumns = null;
+        columnMap = null;
+        xmlColumnPrs = null;
+        commonXPath = null;
     }
 
     private static String caseInsensitive(String s) {
@@ -723,11 +721,11 @@ public class XSSFTable extends POIXMLDocumentPart implements Table {
         if (columnHeader == null) return -1;
         if (columnMap == null) {
             // FIXME: replace with org.apache.commons.collections.map.CaseInsensitiveMap
-            final int count = getCTTableColumns().length;
+            final int count = getColumnCount();
             columnMap = new HashMap<>(count * 3 / 2);
             
             int i = 0;
-            for (CTTableColumn column : getCTTableColumns()) {
+            for (XSSFTableColumn column : getColumns()) {
                 String columnName = column.getName();
                 columnMap.put(caseInsensitive(columnName), i);
                 i++;

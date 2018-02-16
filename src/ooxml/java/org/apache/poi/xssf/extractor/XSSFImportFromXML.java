@@ -131,7 +131,7 @@ public class XSSFImportFromXML {
             int rowOffset = table.getStartCellReference().getRow() + table.getHeaderRowCount();
             int columnOffset = table.getStartCellReference().getCol();
 
-            table.setRowCount(result.getLength());
+            table.setDataRowCount(result.getLength());
 
             for (int i = 0; i < result.getLength(); i++) {
 
@@ -140,7 +140,7 @@ public class XSSFImportFromXML {
 
                 Node singleNode = result.item(i).cloneNode(true);
 
-                for (XSSFTableColumn tableColum : table.getTableColumns()) {
+                for (XSSFTableColumn tableColum : table.getColumns()) {
 
                     XSSFXmlColumnPr xmlColumnPr = tableColum.getXmlColumnPr();
                     if(xmlColumnPr == null) {

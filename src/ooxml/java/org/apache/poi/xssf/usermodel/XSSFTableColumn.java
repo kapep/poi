@@ -71,6 +71,18 @@ public class XSSFTableColumn {
     }
 
     /**
+     * Set the identifier of this column, which must be unique per table.
+     * 
+     * It is up to the caller to enforce the uniqueness of the id.
+     * 
+     * @return the column id
+     * @since 4.0.0
+     */
+    public void setId(long columnId) {
+        ctTableColumn.setId(columnId);
+    }
+
+    /**
      * Get the name of the column, which is is unique per table.
      * 
      * @return the column name
@@ -78,6 +90,16 @@ public class XSSFTableColumn {
      */
     public String getName() {
         return ctTableColumn.getName();
+    }
+
+    /**
+     * Get the name of the column, which is is unique per table.
+     * 
+     * @return the column name
+     * @since 4.0.0
+     */
+    public void setName(String columnName) {
+        ctTableColumn.setName(columnName);
     }
 
     /**

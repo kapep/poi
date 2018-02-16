@@ -31,6 +31,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.util.AreaReference;
 import org.apache.poi.ss.util.CellReference;
 import org.apache.poi.util.IOUtils;
 import org.apache.poi.util.TempFile;
@@ -224,6 +225,14 @@ public final class TestXSSFTable {
     }
 
     @Test
+    public void getColumnCount() throws IOException {
+        XSSFWorkbook wb = XSSFTestDataSamples.openSampleWorkbook("StructuredReferences.xlsx");
+        XSSFTable table = wb.getTable("\\_Prime.1");
+        assertEquals(3, table.getColumnCount());
+        wb.close(); 
+    }
+    
+    @Test
     public void getAndSetDisplayName() throws IOException {
         XSSFWorkbook wb = XSSFTestDataSamples.openSampleWorkbook("StructuredReferences.xlsx");
         XSSFTable table = wb.getTable("\\_Prime.1");
@@ -291,7 +300,91 @@ public final class TestXSSFTable {
         
         IOUtils.closeQuietly(wb);
     }
+    
+    @Test
+    public void testGetDataRowCount() {
+        XSSFWorkbook wb = new XSSFWorkbook();
+        XSSFSheet sh = wb.createSheet();
+        XSSFTable table = sh.createTable();
+        CTTable ctTable = table.getCTTable();
 
+        assertEquals(0, table.getRowCount());
+
+        ctTable.setRef("B2:B6");
+        // update cell references to clear the cache
+        table.updateReferences();
+        assertEquals(5, table.getRowCount()); // includes column header
+        assertEquals(4, table.getDataRowCount());
+        
+        ctTable.setRef("B2:B7");
+        // update cell references to clear the cache
+        table.updateReferences();
+        assertEquals(6, table.getRowCount());
+        assertEquals(5, table.getDataRowCount());
+        
+        IOUtils.closeQuietly(wb);
+    }
+    
+    @Test
+    public void testSetDataRowCount() throws IOException {
+        XSSFWorkbook wb = new XSSFWorkbook();
+        XSSFSheet sh = wb.createSheet();
+        XSSFTable table = sh.createTable();
+        CTTable ctTable = table.getCTTable();
+        ctTable.setRef("C2:C3");
+        
+        assertEquals(2, table.getRowCount()); // includes all column header/footer rows
+        
+        assertEquals(1, table.getHeaderRowCount());
+        assertEquals(1, table.getDataRowCount());
+        assertEquals(0, table.getTotalsRowCount());
+
+        table.setDataRowCount(10);
+        
+        assertEquals(11, table.getRowCount());
+        assertEquals(1, table.getHeaderRowCount());
+        assertEquals(10, table.getDataRowCount());
+        assertEquals(0, table.getTotalsRowCount());
+        
+        
+        IOUtils.closeQuietly(wb);
+    }
+    
+    @Test
+    public void testCreateColumn() throws IOException {
+        try (XSSFWorkbook wb = new XSSFWorkbook();) {
+            XSSFSheet sh = wb.createSheet();
+            XSSFTable table = sh.createTable();
+
+            table.setCellReferences(new AreaReference("D2:D3", wb.getSpreadsheetVersion()));
+
+            // add columns
+            table.createColumn("Column D");
+            table.createColumn("Column F");
+            table.createColumn("Column E", 1);
+            table.updateReferences();
+
+            assertEquals(3, table.getColumnCount());
+            assertEquals("Column D", table.getColumns().get(0).getName());
+            assertEquals("Column E", table.getColumns().get(1).getName());
+            assertEquals("Column F", table.getColumns().get(2).getName());
+        }
+    }
+    
+    @Test(expected = IllegalArgumentException.class)
+    public void testCreateColumnInvalidIndex() throws IOException {
+        try (XSSFWorkbook wb = new XSSFWorkbook();) {
+            XSSFSheet sh = wb.createSheet();
+            XSSFTable table = sh.createTable();
+
+            table.setCellReferences(new AreaReference("D2:D3", wb.getSpreadsheetVersion()));
+
+            // add columns
+            table.createColumn("Column D");
+            table.createColumn("Column F", 2);
+        }
+    }
+    
     @Test
     public void testDifferentHeaderTypes() throws IOException {
         XSSFWorkbook wb = XSSFTestDataSamples.openSampleWorkbook("TablesWithDifferentHeaders.xlsx");

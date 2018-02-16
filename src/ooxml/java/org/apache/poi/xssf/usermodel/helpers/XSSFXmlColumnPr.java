@@ -59,7 +59,7 @@ public class XSSFXmlColumnPr {
     @Removal(version="4.2")
     public XSSFXmlColumnPr(XSSFTable table, CTTableColumn ctTableColum, CTXmlColumnPr ctXmlColumnPr) {
         this.table = table;
-        this.tableColumn = table.getTableColumns().get(table.findColumnIndex(ctTableColum.getName()));
+        this.tableColumn = table.getColumns().get(table.findColumnIndex(ctTableColum.getName()));
         this.ctXmlColumnPr = ctXmlColumnPr;
     }
 
