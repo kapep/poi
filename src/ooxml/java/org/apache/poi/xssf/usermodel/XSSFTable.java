@@ -209,16 +209,17 @@ public class XSSFTable extends POIXMLDocumentPart implements Table {
      */
     public List<XSSFTableColumn> getColumns() {
         if (tableColumns == null) {
-            tableColumns = new ArrayList<>();
+           List<XSSFTableColumn> columns = new ArrayList<>();
             CTTableColumns ctTableColumns = ctTable.getTableColumns();
             if (ctTableColumns != null) {
                 for (CTTableColumn column : ctTableColumns.getTableColumnList()) {
                     XSSFTableColumn tableColumn = new XSSFTableColumn(this, column);
-                    tableColumns.add(tableColumn);
+                    columns.add(tableColumn);
                 }
             }
+            tableColumns = Collections.unmodifiableList(columns);
         }
-        return Collections.unmodifiableList(tableColumns);
+        return tableColumns;
     }
     
     /**
@@ -245,10 +246,10 @@ public class XSSFTable extends POIXMLDocumentPart implements Table {
     }
     
     /**
-     * Add a new column to the right side of the table.
+     * Add a new column to the right end of the table.
      * 
      * @param columnName
-     *            the name of the column, must be unique and not {@code null}
+     *            the unique name of the column, must not be {@code null}
      * @return the created table column
      * @since 4.0.0
      */
@@ -260,10 +261,13 @@ public class XSSFTable extends POIXMLDocumentPart implements Table {
      * Adds a new column to the table.
      * 
      * @param columnName
-     *            the name of the column, must be unique and not null
+     *            the unique name of the column, must not be {@code null}
      * @param columnIndex
      *            the 0-based position of the column in the table
      * @return the created table column
+     * @throws IllegalArgumentException
+     *             if the column name is not unique or missing or if the column
+     *             can't be created at the given index
      * @since 4.0.0
      */
     public XSSFTableColumn createColumn(String columnName, int columnIndex) {
@@ -272,7 +276,8 @@ public class XSSFTable extends POIXMLDocumentPart implements Table {
             throw new IllegalArgumentException("Column name must not be null");
         }
         
-        if(columnIndex < 0 || columnIndex > getColumnCount()) {
+        int columnCount = getColumnCount();
+        if(columnIndex < 0 || columnIndex > columnCount) {
             throw new IllegalArgumentException("Column index out of bounds");
         }
         
@@ -299,8 +304,19 @@ public class XSSFTable extends POIXMLDocumentPart implements Table {
         column.setId(nextColumnId);
         column.setName(columnName);
         
-        // Have the Headers and references updated
-        updateReferences();
+        if (ctTable.getRef() != null) {
+            // calculate new area
+            int newColumnCount = columnCount + 1;
+            CellReference tableStart = getStartCellReference();
+            CellReference tableEnd = getEndCellReference();
+            SpreadsheetVersion version = getXSSFSheet().getWorkbook().getSpreadsheetVersion();
+            CellReference newTableEnd = new CellReference(tableEnd.getRow(),
+                    tableStart.getCol() + newColumnCount);
+            AreaReference newTableArea = new AreaReference(tableStart, newTableEnd, version);
+
+            setCellReferences(newTableArea);
+        }
+        
         updateHeaders();
         
         return getColumns().get(columnIndex);
@@ -309,40 +325,39 @@ public class XSSFTable extends POIXMLDocumentPart implements Table {
     /**
      * Remove a column from the table.
      *
+     * @param column
+     *            the column to remove
+     */
+    public void removeColumn(XSSFTableColumn column) {
+        int columnIndex = getColumns().indexOf(column);
+        if (columnIndex >= 0) {
+            ctTable.getTableColumns().removeTableColumn(columnIndex);
+            updateReferences();
+            updateHeaders();
+        }
+    }
+    
+    /**
+     * Remove a column from the table.
+     *
      * @param columnIndex
      *            the 0-based position of the column in the table
+     * @throws IllegalArgumentException
+     *             if no column at the index exists or if trying to remove the
+     *             tables only column
      */
     public void removeColumn(int columnIndex) {
-        if(columnIndex < 0 || columnIndex > getColumnCount() - 1) {
+        if (columnIndex < 0 || columnIndex > getColumnCount() - 1) {
             throw new IllegalArgumentException("Column index out of bounds");
+        }
+        
+        if(getColumnCount() == 1) {
+            throw new IllegalArgumentException("Table must have at least one column");
         }
         
         ctTable.getTableColumns().removeTableColumn(columnIndex);
 
         updateReferences();
-        updateHeaders();
-    }
-    
-    /**
-     * Adds another column to the table.
-     * 
-     * Warning - Return type likely to change!
-     */
-    @Internal("Return type likely to change")
-    public void addColumn() {
-        // Ensure we have Table Columns
-        CTTableColumns columns = ctTable.getTableColumns();
-        if (columns == null) {
-            columns = ctTable.addNewTableColumns();
-        }
-        
-        // Add another Column, and give it a sensible ID
-        CTTableColumn column = columns.addNewTableColumn();
-        int num = columns.sizeOfTableColumnArray();
-        columns.setCount(num);
-        column.setId(num);
-        
-        // Have the Headers updated if possible
         updateHeaders();
     }
     
@@ -428,13 +443,14 @@ public class XSSFTable extends POIXMLDocumentPart implements Table {
     }
 
     /**
-     * @return The reference for the cells of the table
-     * (see Open Office XML Part 4: chapter 3.5.1.2, attribute ref) 
+     * Get the area reference for the cells which this table covers. The area
+     * includes header rows and totals rows.
      *
-     * Does not track updates to underlying changes to CTTable
-     * To synchronize with changes to the underlying CTTable,
-     * call {@link #updateReferences()}.
+     * Does not track updates to underlying changes to CTTable To synchronize
+     * with changes to the underlying CTTable, call {@link #updateReferences()}.
      * 
+     * @return the area of the table
+     * @see "Open Office XML Part 4: chapter 3.5.1.2, attribute ref"
      * @since 3.17 beta 1
      */
     public AreaReference getCellReferences() {
@@ -444,11 +460,18 @@ public class XSSFTable extends POIXMLDocumentPart implements Table {
                 SpreadsheetVersion.EXCEL2007
         );
     }
+    
     /**
-     * Updates the reference for the cells of the table
-     * (see Open Office XML Part 4: chapter 3.5.1.2, attribute ref)
-     * and synchronizes any changes
+     * Set the area reference for the cells which this table covers. The area
+     * includes includes header rows and totals rows. Automatically synchronizes
+     * any changes by calling {@link #updateHeaders()}.
      * 
+     * Note: The area's width should be identical to the amount of columns in
+     * the table. All header rows, totals rows and at least one data row must
+     * fit inside the area. Setting the area does not automatically create or
+     * remove any columns.
+     * 
+     * @see "Open Office XML Part 4: chapter 3.5.1.2, attribute ref"
      * @since 3.17 beta 1
      */
     public void setCellReferences(AreaReference refs) {
@@ -577,57 +600,58 @@ public class XSSFTable extends POIXMLDocumentPart implements Table {
     }
 
     /**
-     * Resize the table by setting a new row count. This does not include any
-     * header rows or totals rows.
+     * Set the number of rows in the data area of the table. This does not
+     * affect any header rows or totals rows.
      * 
      * If the new row count is less than the current row count, superfluous rows
      * will be cleared. If the new row count is greater than the current row
      * count, cells below the table will be overwritten by the table.
      *
-     * @param table
-     *            the table to modify
-     * @param newRowCount
+     * @param newDataRowCount
      *            new row count for the table
+     * @throws IllegalArgumentException
+     *             if the row count is less than 1
      * @since 4.0.0
      */
-    public void setDataRowCount(int newRowCount) {
+    public void setDataRowCount(int newDataRowCount) {
 
-        if (newRowCount < 1) {
-            throw new IllegalArgumentException("Tables must contain at least one row");
+        if (newDataRowCount < 1) {
+            throw new IllegalArgumentException("Table must have at least one data row");
         }
 
         updateReferences();
-        int rowCount = getDataRowCount();
-        if (rowCount == newRowCount) {
+        int dataRowCount = getDataRowCount();
+        if (dataRowCount == newDataRowCount) {
             return;
         }
 
         CellReference tableStart = getStartCellReference();
         CellReference tableEnd = getEndCellReference();
+        SpreadsheetVersion version = getXSSFSheet().getWorkbook().getSpreadsheetVersion();
 
         // calculate new area
-        SpreadsheetVersion version = getXSSFSheet().getWorkbook().getSpreadsheetVersion();
-        CellReference newEndCell = new CellReference(
-                tableStart.getRow() + newRowCount + getTotalsRowCount(), tableEnd.getCol());
-        AreaReference newTableArea = new AreaReference(tableStart, newEndCell, version);
+        int newTotalRowCount = getHeaderRowCount() + newDataRowCount + getTotalsRowCount();
+        CellReference newTableEnd = new CellReference(tableStart.getRow() + newTotalRowCount - 1,
+                tableEnd.getCol());
+        AreaReference newTableArea = new AreaReference(tableStart, newTableEnd, version);
 
         // clear cells
-        CellReference clearStart;
-        CellReference clearEnd;
-        if (newRowCount < rowCount) {
+        CellReference clearAreaStart;
+        CellReference clearAreaEnd;
+        if (newDataRowCount < dataRowCount) {
             // table size reduced -
             // clear all table cells that are outside of the new area
-            clearStart = new CellReference(newTableArea.getLastCell().getRow() + 1,
+            clearAreaStart = new CellReference(newTableArea.getLastCell().getRow() + 1,
                     newTableArea.getFirstCell().getCol());
-            clearEnd = tableEnd;
+            clearAreaEnd = tableEnd;
         } else {
             // table size increased -
             // clear all cells below the table that are inside the new area
-            clearStart = new CellReference(tableEnd.getRow() + 1,
+            clearAreaStart = new CellReference(tableEnd.getRow() + 1,
                     newTableArea.getFirstCell().getCol());
-            clearEnd = newEndCell;
+            clearAreaEnd = newTableEnd;
         }
-        AreaReference areaToClear = new AreaReference(clearStart, clearEnd, version);
+        AreaReference areaToClear = new AreaReference(clearAreaStart, clearAreaEnd, version);
         for (CellReference cellRef : areaToClear.getAllReferencedCells()) {
             XSSFRow row = getXSSFSheet().getRow(cellRef.getRow());
             if (row != null) {
@@ -654,7 +678,7 @@ public class XSSFTable extends POIXMLDocumentPart implements Table {
         if(tableColumns == null) {
             return 0;
         }
-        // Can be safely cast to an integer here, because tables larger than the
+        // Casting to int should be safe here - tables larger than the
         // sheet (which holds the actual data of the table) can't exists.
         return (int) tableColumns.getCount();
     }
@@ -664,7 +688,7 @@ public class XSSFTable extends POIXMLDocumentPart implements Table {
      * Headers <em>must</em> be in sync, otherwise Excel will display a
      * "Found unreadable content" message on startup.
      * 
-     * If calling both {@link #updateReferences()} and
+     * This methods calls {@link #updateReferences()} and
      * this method, {@link #updateReferences()}
      * should be called first.
      * 
@@ -675,7 +699,7 @@ public class XSSFTable extends POIXMLDocumentPart implements Table {
     public void updateHeaders() {
         XSSFSheet sheet = (XSSFSheet)getParent();
         CellReference ref = getStartCellReference();
-        if(ref == null) return;
+        if (ref == null) return;
 
         int headerRow = ref.getRow();
         int firstHeaderColumn = ref.getCol();
@@ -686,7 +710,7 @@ public class XSSFTable extends POIXMLDocumentPart implements Table {
             int cellnum = firstHeaderColumn;
             CTTableColumns ctTableColumns = getCTTable().getTableColumns();
             if(ctTableColumns != null) {
-                for (CTTableColumn col : getCTTable().getTableColumns().getTableColumnList()) {
+                for (CTTableColumn col : ctTableColumns.getTableColumnList()) {
                     XSSFCell cell = row.getCell(cellnum);
                     if (cell != null) {
                         col.setName(formatter.formatCellValue(cell));

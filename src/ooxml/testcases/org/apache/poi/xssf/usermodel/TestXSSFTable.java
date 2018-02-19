@@ -331,7 +331,7 @@ public final class TestXSSFTable {
         XSSFSheet sh = wb.createSheet();
         XSSFTable table = sh.createTable();
         CTTable ctTable = table.getCTTable();
-        ctTable.setRef("C2:C3");
+        ctTable.setRef("C10:C11"); // 1 header row + 1 data row 
         
         assertEquals(2, table.getRowCount()); // includes all column header/footer rows
         
@@ -339,12 +339,15 @@ public final class TestXSSFTable {
         assertEquals(1, table.getDataRowCount());
         assertEquals(0, table.getTotalsRowCount());
 
-        table.setDataRowCount(10);
+        table.setDataRowCount(5);
         
-        assertEquals(11, table.getRowCount());
+        assertEquals(6, table.getRowCount());
+        
         assertEquals(1, table.getHeaderRowCount());
-        assertEquals(10, table.getDataRowCount());
+        assertEquals(5, table.getDataRowCount());
         assertEquals(0, table.getTotalsRowCount());
+        
+        assertEquals("C10:C15", ctTable.getRef());
         
         
         IOUtils.closeQuietly(wb);
@@ -442,9 +445,9 @@ public final class TestXSSFTable {
         XSSFTable t = s.createTable();
         t.setName("TableTest");
         t.setDisplayName("CT_Table_Test");
-        t.addColumn();
-        t.addColumn();
-        t.addColumn();
+        t.createColumn("Column 1");
+        t.createColumn("Column 2");
+        t.createColumn("Column 3");
         t.setCellReferences(wb.getCreationHelper().createAreaReference(
                 new CellReference(c1), new CellReference(c6)
         ));

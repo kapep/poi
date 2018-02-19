@@ -23,7 +23,7 @@ import org.openxmlformats.schemas.spreadsheetml.x2006.main.CTTableColumn;
 import org.openxmlformats.schemas.spreadsheetml.x2006.main.CTXmlColumnPr;
 
 /**
- * A table column of an {@link XSSFTable}. Use {@link XSSFTable#addColumn()} to
+ * A table column of an {@link XSSFTable}. Use {@link XSSFTable#createColumn} to
  * create new table columns.
  * 
  * @author Leonard Kappe
